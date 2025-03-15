@@ -56,8 +56,10 @@ streamlit run llm_vram_calc.py
 
 ### Inference Terms
 
-- **KV Cache**: Key-Value cache storing intermediate attention results for efficient autoregressive generation
+- **K Cache**: Key cache storing key tensors from attention operations for efficient autoregressive generation
+- **V Cache**: Value cache storing value tensors from attention operations for efficient autoregressive generation
 - **Quantization**: Technique to reduce model precision (e.g., FP16, INT8, INT4)
+- **K/V Quantization**: Separate quantization of key and value tensors, often with values kept at higher precision
 - **MHA**: Multi-head Attention - Standard attention mechanism with separate key-value pairs per head
 - **MQA**: Multi-query Attention - Uses one key-value pair for all query heads
 - **GQA**: Grouped-query Attention - Uses shared key-value pairs within defined groups

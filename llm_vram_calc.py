@@ -450,12 +450,23 @@ with tab3:
                 help="Number of query groups in GQA"
             )
         
-        kv_quantization = st.selectbox(
-            "KV Cache Quantization",
-            options=["None (same as model precision)", "INT8", "INT4"],
-            index=0,
-            help="Quantization applied to the KV cache"
-        )
+        col_k, col_v = st.columns(2)
+        
+        with col_k:
+            k_quantization = st.selectbox(
+                "Key (K) Cache Quantization",
+                options=["None (same as model precision)", "FP16", "INT8", "INT4"],
+                index=0,
+                help="Quantization applied to Key (K) cache"
+            )
+            
+        with col_v:
+            v_quantization = st.selectbox(
+                "Value (V) Cache Quantization",
+                options=["None (same as model precision)", "FP16", "INT8", "INT4"],
+                index=0,
+                help="Quantization applied to Value (V) cache - often kept at higher precision than K"
+            )
         
     with col2:
         st.subheader("Inference Configuration")
@@ -539,32 +550,55 @@ with tab3:
     model_weights_memory = inf_model_size * 1e9 * model_param_bytes
     
     # KV cache memory calculation
-    # Determine KV cache precision
-    if kv_quantization == "None (same as model precision)":
+    # Determine K cache precision
+    if k_quantization == "None (same as model precision)":
         if inf_precision == "Mixed Precision":
-            kv_bytes = 2  # Default to FP16 for KV cache
+            k_bytes = 2  # Default to FP16 for K cache
         elif inf_precision == "FP32 (4 bytes)":
-            kv_bytes = 4
+            k_bytes = 4
         else:
-            kv_bytes = model_param_bytes
-    elif kv_quantization == "INT8":
-        kv_bytes = 1
+            k_bytes = model_param_bytes
+    elif k_quantization == "FP16":
+        k_bytes = 2
+    elif k_quantization == "INT8":
+        k_bytes = 1
     else:  # INT4
-        kv_bytes = 0.5
+        k_bytes = 0.5
+        
+    # Determine V cache precision
+    if v_quantization == "None (same as model precision)":
+        if inf_precision == "Mixed Precision":
+            v_bytes = 2  # Default to FP16 for V cache
+        elif inf_precision == "FP32 (4 bytes)":
+            v_bytes = 4
+        else:
+            v_bytes = model_param_bytes
+    elif v_quantization == "FP16":
+        v_bytes = 2
+    elif v_quantization == "INT8":
+        v_bytes = 1
+    else:  # INT4
+        v_bytes = 0.5
     
     # KV cache size based on attention implementation
     head_dim = inf_hidden_size // num_heads
     
     if attn_implementation == "Multi-head Attention (MHA)":
-        # Both K and V stored for each head
-        kv_cache_size = 2 * inf_batch_size * inf_num_layers * context_length * inf_hidden_size * kv_bytes
+        # Both K and V stored for each head, but potentially at different precisions
+        k_cache_size = inf_batch_size * inf_num_layers * context_length * inf_hidden_size * k_bytes
+        v_cache_size = inf_batch_size * inf_num_layers * context_length * inf_hidden_size * v_bytes
     elif attn_implementation == "Multi-query Attention (MQA)":
         # K and V shared across heads, so only one copy per layer
-        kv_cache_size = inf_batch_size * inf_num_layers * context_length * (head_dim * 2) * kv_bytes
+        k_cache_size = inf_batch_size * inf_num_layers * context_length * head_dim * k_bytes
+        v_cache_size = inf_batch_size * inf_num_layers * context_length * head_dim * v_bytes
     else:  # Grouped-query Attention (GQA)
         # K and V shared within groups
         kv_per_group = inf_hidden_size // gqa_groups
-        kv_cache_size = inf_batch_size * inf_num_layers * context_length * (kv_per_group * 2) * kv_bytes
+        k_cache_size = inf_batch_size * inf_num_layers * context_length * kv_per_group * k_bytes
+        v_cache_size = inf_batch_size * inf_num_layers * context_length * kv_per_group * v_bytes
+        
+    # Total KV cache size
+    kv_cache_size = k_cache_size + v_cache_size
     
     # Activation memory during inference
     # Flash attention significantly reduces memory footprint
@@ -589,7 +623,9 @@ with tab3:
     
     with col1:
         st.metric("Model Weights", bytes_to_human_readable(model_weights_memory))
-        st.metric("KV Cache", bytes_to_human_readable(kv_cache_size))
+        st.metric("Total KV Cache", bytes_to_human_readable(kv_cache_size))
+        st.metric("  • K Cache", bytes_to_human_readable(k_cache_size))
+        st.metric("  • V Cache", bytes_to_human_readable(v_cache_size))
     
     with col2:
         st.metric("Activation Memory", bytes_to_human_readable(activation_memory_inference))
